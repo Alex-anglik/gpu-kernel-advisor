@@ -2,10 +2,17 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { GEMINI_MODEL, generateReport, type ReportInput } from '../gemini'
 
-export function ReportSection({ input }: { input: ReportInput }) {
+interface Props {
+  input: ReportInput
+  // pre-generated report shipped with demo examples; the user can still
+  // regenerate live with their own key
+  cannedReport?: string | null
+}
+
+export function ReportSection({ input, cannedReport }: Props) {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('geminiApiKey') ?? '')
   const [generating, setGenerating] = useState(false)
-  const [report, setReport] = useState<string | null>(null)
+  const [report, setReport] = useState<string | null>(cannedReport ?? null)
   const [error, setError] = useState<string | null>(null)
 
   async function run() {

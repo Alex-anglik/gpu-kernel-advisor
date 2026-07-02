@@ -35,8 +35,12 @@ STRICT GROUNDING RULES:
 6. Do not propose fixes the metrics already rule out (e.g. do not suggest improving coalescing when sectors-per-request is already ≈ 4).
 
 ROOFLINE PLACEMENT (derived from the measurements):
-- Arithmetic intensity: ${ai?.toFixed(4) ?? 'unknown'} FLOP/byte → ${bound}-bound region
-- Achieved ${gflops?.toFixed(2) ?? 'unknown'} GFLOP/s of ${attainable?.toFixed(2) ?? 'unknown'} GFLOP/s attainable at this intensity (${pct ?? 'unknown'}%)
+${
+  derived.fp32_flops === 0
+    ? '- Zero FP32 FLOPs measured — this kernel is pure data movement. The roofline placement is undefined and GFLOP/s comparisons are meaningless here; analyse it purely as a bandwidth/cache problem.'
+    : `- Arithmetic intensity: ${ai?.toFixed(4) ?? 'unknown'} FLOP/byte → ${bound}-bound region
+- Achieved ${gflops?.toFixed(2) ?? 'unknown'} GFLOP/s of ${attainable?.toFixed(2) ?? 'unknown'} GFLOP/s attainable at this intensity (${pct ?? 'unknown'}%)`
+}
 
 NSIGHT COMPUTE MEASUREMENTS (one launch of "${kernelName}"):
 ${JSON.stringify(metrics, null, 2)}

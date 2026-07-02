@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "capture": "tsx scripts/capture-demo.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -23,6 +24,7 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^5.0.0",
     "tailwindcss": "^4.1.11",
+    "tsx": "^4.22.5",
     "typescript": "~5.8.3",
     "vite": "^7.0.0"
   }

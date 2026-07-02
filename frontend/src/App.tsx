@@ -2,6 +2,7 @@ import { useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { profileKernel, type ProfileResponse } from './api'
 import { BackendBar, type HealthState } from './components/BackendBar'
+import { captured, DEMO_EXAMPLES, demoSource } from './demo/examples'
 import { MetricsSummary, MetricsTable } from './components/MetricsDashboard'
 import { ReportSection } from './components/ReportSection'
 import { Roofline } from './components/Roofline'
@@ -19,6 +20,32 @@ export default function App() {
   // and the LLM report must describe the profiled source, not the current buffer
   const [profiled, setProfiled] = useState<{ source: string; kernelName: string } | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [origin, setOrigin] = useState<'live' | 'demo' | null>(null)
+  const [cannedReport, setCannedReport] = useState<string | null>(null)
+  // bump to remount ReportSection so stale report state never survives a new result
+  const [reportKey, setReportKey] = useState(0)
+
+  function loadExample(id: string) {
+    const ex = DEMO_EXAMPLES.find((e) => e.id === id)
+    if (!ex) return
+    const src = demoSource(ex.file)
+    setSource(src)
+    setKernelName(ex.kernelName)
+    setFetchError(null)
+    const cap = captured.results[ex.id]
+    if (cap) {
+      setResult({ status: 'ok', metrics: cap.metrics, derived: cap.derived })
+      setProfiled({ source: src, kernelName: ex.kernelName })
+      setOrigin('demo')
+      setCannedReport(cap.report)
+    } else {
+      setResult(null)
+      setProfiled(null)
+      setOrigin(null)
+      setCannedReport(null)
+    }
+    setReportKey((k) => k + 1)
+  }
 
   function handleUrlChange(url: string) {
     setBackendUrl(url)
@@ -33,6 +60,9 @@ export default function App() {
     try {
       setResult(await profileKernel(backendUrl, source, kernelName))
       setProfiled({ source, kernelName })
+      setOrigin('live')
+      setCannedReport(null)
+      setReportKey((k) => k + 1)
     } catch (e) {
       setFetchError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -60,7 +90,23 @@ export default function App() {
       <main className="flex-1 grid grid-cols-2 min-h-0">
         <section className="flex flex-col border-r border-zinc-800 min-h-0">
           <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 shrink-0">
-            <label className="text-xs text-zinc-500">kernel</label>
+            <select
+              value=""
+              onChange={(e) => loadExample(e.target.value)}
+              className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs
+                         focus:outline-none focus:border-indigo-500"
+              data-testid="example-select"
+            >
+              <option value="" disabled>
+                Examples…
+              </option>
+              {DEMO_EXAMPLES.map((ex) => (
+                <option key={ex.id} value={ex.id}>
+                  {ex.title}
+                </option>
+              ))}
+            </select>
+            <label className="text-xs text-zinc-500 ml-1">kernel</label>
             <input
               value={kernelName}
               onChange={(e) => setKernelName(e.target.value)}
@@ -106,8 +152,8 @@ export default function App() {
           {!profiling && !result && !fetchError && (
             <div className="text-sm text-zinc-500">
               {health === 'ok'
-                ? 'Edit the kernel and hit "Profile on T4".'
-                : 'Paste your Colab tunnel URL top-right and hit Connect.'}
+                ? 'Edit the kernel and hit "Profile on T4", or load an example.'
+                : 'Pick an example (pre-captured T4 data, no backend needed) — or paste your Colab tunnel URL top-right and Connect to profile live.'}
             </div>
           )}
 
@@ -139,17 +185,34 @@ export default function App() {
 
           {result?.status === 'ok' && (
             <div className="space-y-6" data-testid="metrics-dashboard">
+              {origin === 'demo' && (
+                <div
+                  className="text-xs text-amber-300/90 bg-amber-950/30 border border-amber-900/40 rounded px-3 py-2"
+                  data-testid="demo-badge"
+                >
+                  Pre-captured on {captured.gpu} ({captured.capturedAt}) — real ncu
+                  measurements, not live. Connect a backend to re-profile.
+                </div>
+              )}
               <MetricsSummary metrics={result.metrics} derived={result.derived} />
-              {result.derived.arithmetic_intensity_flop_per_byte !== null &&
-                result.derived.achieved_gflops !== null && (
-                  <Roofline
-                    ai={result.derived.arithmetic_intensity_flop_per_byte}
-                    gflops={result.derived.achieved_gflops}
-                    smClockHz={result.metrics['sm__cycles_elapsed.avg.per_second']?.value ?? null}
-                  />
-                )}
+              {result.derived.arithmetic_intensity_flop_per_byte &&
+              result.derived.achieved_gflops ? (
+                <Roofline
+                  ai={result.derived.arithmetic_intensity_flop_per_byte}
+                  gflops={result.derived.achieved_gflops}
+                  smClockHz={result.metrics['sm__cycles_elapsed.avg.per_second']?.value ?? null}
+                />
+              ) : (
+                <div className="text-xs text-zinc-500 bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+                  No FP32 floating-point work measured — roofline placement is undefined for
+                  pure data-movement kernels. The bandwidth and cache metrics above are the
+                  relevant signals here.
+                </div>
+              )}
               {profiled && (
                 <ReportSection
+                  key={reportKey}
+                  cannedReport={cannedReport}
                   input={{
                     source: profiled.source,
                     kernelName: profiled.kernelName,

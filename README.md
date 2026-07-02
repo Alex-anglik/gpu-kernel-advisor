@@ -58,6 +58,22 @@ Paste the tunnel URL top-right → Connect → edit the kernel → **Profile on 
 For the LLM report, paste a [Gemini API key](https://aistudio.google.com/apikey)
 (free tier) in the report card. Both are stored in `localStorage` only.
 
+**No backend? Use the examples.** The Examples dropdown ships four contrasting
+kernels with pre-captured T4 profiles (clearly badged as such — real `ncu`
+measurements, just not live): a coalesced vector add at ~90% of DRAM peak, a
+naive transpose whose strided reads blow sectors-per-request out to ~32, a
+genuinely divergent branch (threads-per-instruction ≈ 17), and an untiled
+matmul crawling at 7% DRAM utilisation. To refresh the captures against a live
+backend:
+
+```sh
+npm run capture -- <backend-url> [gemini-api-key]
+```
+
+The optional Gemini key also pre-generates the example reports, reusing the
+exact prompt builder the UI uses, so canned and live reports follow identical
+grounding rules.
+
 The submitted source must be a **complete program**: `main()` allocates buffers and
 launches the kernel with a realistic problem size — the profiler measures exactly
 what runs. The editor's default template shows the shape.
@@ -95,7 +111,4 @@ Interpretation subtleties the tool handles explicitly:
 
 ## Roadmap
 
-- Demo mode: pre-captured profiles + reports for contrasting example kernels
-  (coalesced vs. strided, divergent vs. uniform, naive vs. tiled matmul) so the
-  deployed site works with no backend.
-- Vercel deployment of the static frontend.
+- Vercel deployment of the static frontend (demo mode makes it self-contained).
