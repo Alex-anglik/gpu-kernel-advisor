@@ -27,11 +27,43 @@ const base = backendUrl.replace(/\/+$/, '')
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+type ReportInput = Parameters<typeof generateReport>[1]
+
+// Gemini free tier throws transient 429/5xx under load — retry with backoff
+// rather than losing a whole capture run to one blip.
+async function reportWithRetry(key: string, input: ReportInput): Promise<string | null> {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      return await generateReport(key, input)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const transient = /HTTP (429|5\d\d)/.test(msg)
+      if (!transient || attempt === 4) {
+        console.warn(`report failed permanently: ${msg}`)
+        return null
+      }
+      const wait = attempt * 20
+      console.log(`\n  transient error (${msg}) — retrying in ${wait}s …`)
+      await sleep(wait * 1000)
+    }
+  }
+  return null
+}
+
 async function main() {
   const health = await (await fetch(`${base}/health`)).json()
   console.log(`backend ok — GPU: ${health.gpu}`)
 
+  // reports from a previous (possibly partial) run survive as fallbacks
+  let previous: Record<string, { report?: string | null } | undefined> = {}
+  try {
+    previous = JSON.parse(readFileSync(outPath, 'utf8')).results ?? {}
+  } catch {
+    /* no previous capture */
+  }
+
   const results: Record<string, unknown> = {}
+  const missingReports: string[] = []
 
   for (const ex of DEMO_EXAMPLES) {
     const source = readFileSync(join(kernelsDir, ex.file), 'utf8')
@@ -56,33 +88,45 @@ async function main() {
         `DRAM SOL ${m['dram__throughput.avg.pct_of_peak_sustained_elapsed']?.value}%`,
     )
 
-    let report: string | null = null
+    let report: string | null = previous[ex.id]?.report ?? null
     if (geminiKey) {
       process.stdout.write(`  generating report … `)
-      report = await generateReport(geminiKey, {
+      const fresh = await reportWithRetry(geminiKey, {
         source,
         kernelName: ex.kernelName,
         metrics: profile.metrics,
         derived: profile.derived,
       })
-      console.log(`${report.length} chars`)
+      if (fresh) {
+        report = fresh
+        console.log(`${fresh.length} chars`)
+      } else if (report) {
+        console.log('kept report from previous capture')
+      }
       await sleep(5000) // stay friendly to free-tier rate limits
     }
+    if (!report) missingReports.push(ex.id)
 
     results[ex.id] = { metrics: profile.metrics, derived: profile.derived, report }
+
+    // write after every kernel so a mid-run failure never loses finished work
+    writeFileSync(
+      outPath,
+      JSON.stringify(
+        { gpu: health.gpu, capturedAt: new Date().toISOString().slice(0, 10), results },
+        null,
+        2,
+      ) + '\n',
+    )
   }
 
-  writeFileSync(
-    outPath,
-    JSON.stringify(
-      { gpu: health.gpu, capturedAt: new Date().toISOString().slice(0, 10), results },
-      null,
-      2,
-    ) + '\n',
-  )
   console.log(`wrote ${outPath}`)
-  if (!geminiKey) {
-    console.log('(no Gemini key given — reports are null; rerun with a key to fill them)')
+  if (missingReports.length > 0) {
+    console.log(
+      geminiKey
+        ? `reports still missing for: ${missingReports.join(', ')} — rerun to retry (existing ones are kept)`
+        : '(no Gemini key given — reports are null; rerun with a key to fill them)',
+    )
   }
 }
 
